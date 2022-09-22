@@ -1,0 +1,77 @@
+//create tblErrorLog
+create table tblErrorLog if not exists(
+    errCode integer,
+    errState varchar(10),
+    errMessage varchar(200),
+    errStackTraceTxt varchar(200),
+    insertedOn datetime default current_timestamp() -- default datetime will be updated when an error occurs
+);
+
+create or replace transient table customer (
+    customer_id int,
+    salutation varchar,
+    first_name varchar,
+    last_name varchar,
+    birth_day int,
+    birth_month int,
+    birth_year int,
+    birth_country varchar,
+    email_address varchar,
+    cust_status varchar
+) comment ='this is simple customer table';
+insert into customer (customer_id ,salutation ,first_name ,last_name ,birth_day ,birth_month ,birth_year ,birth_country ,email_address,cust_status )
+values 
+(101,'Mr.', 'Cust-1','LName-1',10,12,2000,'Japan','cust-1.lname-1@gmail.com','Active'),
+(102,'Mr.', 'Cust-2','LName-2',27,11,1999,'USA','cust-2.lname-2@gmail.com','Inactive'),
+(103,'Mr.', 'Cust-3','LName-3',21,2,1998,'UK','cust-3.lname-3@gmail.com','Blocked'),
+(104,'Mr.', 'Cust-4','LName-4',19,9,1997,'USA','cust-4.lname-4@gmail.com','Active'),
+(105,'Mr.', 'Cust-5','LName-5',11,3,1997,'Canada','cust-5.lname-5@gmail.com','Unknown');
+
+-- lets validate the data
+select * from customer;
+DELETE FROM CUSTOMER WHERE CUST_STATUS ='invalid';
+
+--create stored proc to delete customer
+create or replace procedure purge_inactive_customer(status string)
+    returns string
+    language javascript
+    strict
+    execute as owner
+    as
+    $$
+		try{
+			var tsrs = snowflake.execute({sqlText: "SELECT CURRENT_TIMESTAMP()"});
+			tsrs.next();
+			var ts = tsrs.getColumnValue(1)
+			var strSQL = "SELECT COUNT(*) FROM CUSTOMER WHERE CUST_STATUS = ?";
+			//var sql_command = "SELECT COUNT(*) FROM CUSTOMER WHERE CUST_STATUS = '" + STATUS + "'";
+			var rs = snowflake.execute ( {sqlText: strSQL, binds: [STATUS]} );
+			// or var rs = snowflake.execute({sqlText: sql_command})-- without binding
+			rs.next();
+			var cnt = rs.getColumnValue(1);
+		}
+		catch(err){
+			//log the error details to tblErrorLog table
+			//insertedon column by default will insert current timestamp so no need to use that in insert
+			snowflake.execute(
+			{
+				sqlText: "INSERT INTO TBLERRORLOG (ERRCODE, ERRSTATE, ERRMESSAGE, ERRSTACKTRACETXT) VALUES (?, ?, ?, ?);", 
+				binds: [err.code, err.state, err.message, err.stackTraceTxt]
+			}
+			);
+			//for debug purpose if we want to return the error details
+			//var queryText = statement.getSqlText(); --This method returns the text of the prepared query in the Statement object.
+		   // return "code " + err.code + " state " + err.state + " msg " + err.message + " trace " + err.stackTraceTxt;
+			return 'failed';
+		}
+
+		return cnt;
+    $$;
+-- call the stored procedure
+call purge_inactive_customer('Inactive');
+select * from tblErrorLog;
+select * from "TTIPS"."INFORMATION_SCHEMA"."PROCEDURES";
+
+describe procedure purge_inactive_customer(string);
+
+select current_timestamp();
